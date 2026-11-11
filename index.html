@@ -21,7 +21,7 @@
     --num:ui-rounded,"SF Pro Rounded",-apple-system,"PingFang TC",system-ui,sans-serif}
   @media (prefers-color-scheme:dark){:root{--paper:#0D1520;--card:#162130;--ink:#E6EDF4;--muted:#8FA0B4;--line:#273548;--teal:#3BB4BE;--red:#F06A72}}
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-  html,body{margin:0;height:100%;background:var(--paper);color:var(--ink);font-family:-apple-system,"PingFang TC",system-ui,sans-serif}
+  html,body{margin:0;height:100%;overflow:hidden;background:var(--paper);color:var(--ink);font-family:-apple-system,"PingFang TC",system-ui,sans-serif}
   body{position:fixed;inset:0;overflow:hidden;overscroll-behavior:none}
   #probe{position:fixed;left:0;top:0;width:0;height:0;visibility:hidden;
     padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px)}
@@ -86,29 +86,88 @@ var key = '';
 try { key = localStorage.getItem(KEY_NAME) || ''; } catch (e) {}
 var loaded = false, slowTimer = null;
 
-function insets() {
+// iPhone 各機型的安全區域（直向，單位 pt）。iOS 偶爾在剛打開時回報 0，這時用這張表補上
+// key = 螢幕長邊的高度
+var DEVICE_INSETS = {
+  667: [20, 0],   // SE 2/3、6/7/8
+  736: [20, 0],   // 6/7/8 Plus
+  780: [50, 34],  // 12 mini、13 mini
+  812: [44, 34],  // X、XS、11 Pro
+  844: [47, 34],  // 12、13、14、16e
+  852: [59, 34],  // 14 Pro、15、15 Pro、16
+  874: [62, 34],  // 16 Pro、17 Pro
+  896: [48, 34],  // XR、11、XS Max、11 Pro Max
+  926: [47, 34],  // 12/13 Pro Max、14 Plus
+  932: [59, 34],  // 14 Pro Max、15 Plus、15 Pro Max、16 Plus
+  956: [62, 34]   // 16 Pro Max、17 Pro Max
+};
+function standalone() { return window.navigator.standalone === true || (window.matchMedia && matchMedia('(display-mode: standalone)').matches); }
+function measure() {
   var cs = getComputedStyle($('probe'));
   var n = function (v) { return Math.round(parseFloat(v) || 0); };
   return { t: n(cs.paddingTop), b: n(cs.paddingBottom), l: n(cs.paddingLeft), r: n(cs.paddingRight) };
 }
-function screen(id) {
+function insets() {
+  var s = measure();
+  if (standalone() && s.t === 0 && s.b === 0 && window.innerHeight > window.innerWidth) {
+    var f = DEVICE_INSETS[Math.max(window.screen.width, window.screen.height)];
+    if (f) { s.t = f[0]; s.b = f[1]; s.fallback = true; }
+  }
+  return s;
+}
+// 等 iOS 把安全區域算好再量（最多等 0.6 秒）
+function whenInsetsReady(cb) {
+  var tries = 0;
+  (function poll() {
+    var s = measure();
+    if (s.t > 0 || s.b > 0 || ++tries > 12) return cb(insets());
+    setTimeout(poll, 50);
+  })();
+}
+var appWin = null, appOrigin = '*', lastInsets = '';
+function sendInsets() {
+  var s = insets(), k = JSON.stringify(s);
+  if (k === lastInsets || !appWin) return;
+  lastInsets = k;
+  appWin.postMessage({ type: 'fs-insets', top: s.t, bottom: s.b, left: s.l, right: s.r }, appOrigin);
+}
+window.addEventListener('resize', function () { setTimeout(sendInsets, 250); });
+window.addEventListener('orientationchange', function () { setTimeout(sendInsets, 400); });
+
+// 鍵盤收起後，把被 iOS 往上推的畫面捲回原位
+function resetScroll() {
+  if (window.scrollY || document.documentElement.scrollTop || document.body.scrollTop) {
+    window.scrollTo(0, 0); document.documentElement.scrollTop = 0; document.body.scrollTop = 0;
+  }
+}
+if (window.visualViewport) {
+  visualViewport.addEventListener('resize', function () {
+    if (visualViewport.height > window.innerHeight * 0.85) { setTimeout(resetScroll, 60); setTimeout(resetScroll, 350); }
+  });
+}
+window.addEventListener('scroll', function () {
+  if (!window.visualViewport || visualViewport.height > window.innerHeight * 0.85) resetScroll();
+});
+function showScreen(id) {
   ['login', 'splash'].forEach(function (s) { $(s).classList.toggle('off', s !== id); });
   $('frame').classList.toggle('on', id === 'app');
 }
 function save(k) { key = k; try { if (k) localStorage.setItem(KEY_NAME, k); else localStorage.removeItem(KEY_NAME); } catch (e) {} }
 
 function start() {
-  if (!key) { screen('login'); setTimeout(function () { $('key').focus(); }, 300); return; }
-  if (/請貼上/.test(WEB_APP_URL)) { screen('login'); $('err').textContent = '還沒設定 WEB_APP_URL：請在 GitHub 的 index.html 貼上 Apps Script 網址。'; return; }
-  screen('splash'); $('splashMsg').textContent = '';
+  if (!key) { showScreen('login'); setTimeout(function () { $('key').focus(); }, 300); return; }
+  if (/請貼上/.test(WEB_APP_URL)) { showScreen('login'); $('err').textContent = '還沒設定 WEB_APP_URL：請在 GitHub 的 index.html 貼上 Apps Script 網址。'; return; }
+  showScreen('splash'); $('splashMsg').textContent = '';
   loaded = false;
   clearTimeout(slowTimer);
   slowTimer = setTimeout(function () { if (!loaded) $('splashMsg').textContent = '連線比較慢，還在載入…'; }, 6000);
   setTimeout(function () { if (!loaded) $('splashMsg').textContent = '載入很久了。可以關掉 App 再打開，或檢查網路。'; }, 25000);
-  var s = insets();
-  var dark = window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches;
-  var su = location.origin + location.pathname;
-  $('frame').src = WEB_APP_URL + '?sat=' + s.t + '&sab=' + s.b + '&sal=' + s.l + '&sar=' + s.r + '&theme=' + (dark ? 'dark' : 'light') + '&su=' + encodeURIComponent(su);
+  whenInsetsReady(function (s) {
+    var dark = window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches;
+    var su = location.origin + location.pathname;
+    lastInsets = JSON.stringify(s);
+    $('frame').src = WEB_APP_URL + '?sat=' + s.t + '&sab=' + s.b + '&sal=' + s.l + '&sar=' + s.r + '&theme=' + (dark ? 'dark' : 'light') + '&su=' + encodeURIComponent(su);
+  });
 }
 
 function trusted(origin) { return /\.googleusercontent\.com$/.test(origin) || /^https:\/\/script\.google\.com$/.test(origin); }
@@ -118,15 +177,18 @@ window.addEventListener('message', function (e) {
   var d = e.data || {};
   switch (d.type) {
     case 'fs-ready':                       // App 載入完成，把密碼交給它（密碼不放在網址裡）
+      appWin = e.source; appOrigin = e.origin;
       if (e.source && key) e.source.postMessage({ type: 'fs-auth', key: key }, e.origin);
+      lastInsets = ''; sendInsets();       // 再確認一次安全區域（iOS 有時載入後才更新）
       break;
-    case 'fs-loaded': loaded = true; clearTimeout(slowTimer); screen('app'); break;
+    case 'fs-blur': setTimeout(resetScroll, 80); setTimeout(resetScroll, 400); break;
+    case 'fs-loaded': loaded = true; clearTimeout(slowTimer); showScreen('app'); break;
     case 'fs-store': if (d.key) save(String(d.key)); break;           // 換成個人通行碼保存
     case 'fs-authfail':
-      save(''); $('frame').src = 'about:blank'; screen('login');
+      save(''); $('frame').src = 'about:blank'; showScreen('login');
       $('err').textContent = d.message || '密碼不正確'; $('key').value = '';
       break;
-    case 'fs-logout': save(''); $('frame').src = 'about:blank'; $('err').textContent = ''; $('key').value = ''; screen('login'); break;
+    case 'fs-logout': save(''); $('frame').src = 'about:blank'; $('err').textContent = ''; $('key').value = ''; showScreen('login'); break;
     case 'fs-share':
       if (navigator.share) navigator.share({ text: d.text }).catch(function () {});
       else if (navigator.clipboard) navigator.clipboard.writeText(d.text);
