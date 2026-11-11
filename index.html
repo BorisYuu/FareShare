@@ -23,11 +23,12 @@
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
   html,body{margin:0;height:100%;overflow:hidden;background:var(--paper);color:var(--ink);font-family:-apple-system,"PingFang TC",system-ui,sans-serif}
   body{position:fixed;inset:0;overflow:hidden;overscroll-behavior:none}
+  html{background:var(--paper)}
   #probe{position:fixed;left:0;top:0;width:0;height:0;visibility:hidden;
     padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px)}
-  #frame{position:fixed;inset:0;width:100%;height:100%;border:0;display:block;background:var(--paper);visibility:hidden}
+  #frame{position:fixed;top:0;left:0;width:100%;height:var(--app-h,100%);border:0;display:block;background:var(--paper);visibility:hidden}
   #frame.on{visibility:visible}
-  .screen{position:fixed;inset:0;display:flex;flex-direction:column;justify-content:center;align-items:center;padding:24px;
+  .screen{position:fixed;top:0;left:0;right:0;height:var(--app-h,100%);display:flex;flex-direction:column;justify-content:center;align-items:center;padding:24px;
     padding-top:calc(env(safe-area-inset-top) + 24px);padding-bottom:calc(env(safe-area-inset-bottom) + 24px);transition:opacity .3s,visibility 0s .3s}
   .screen.off{opacity:0;visibility:hidden}
   .box{width:100%;max-width:360px}
@@ -78,7 +79,7 @@
 
 <script>
 /* ===== 部署 Apps Script 網頁應用程式後，把網址（/exec 結尾）貼在這裡 ===== */
-var WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbwuQzuzZH-C06-GYJUycRiOcd5ZFeD9K7-ODnexuL3tI_XS3DjXxWHQI5sxQsQhM1ShiA/exec';
+var WEB_APP_URL = 'https://script.google.com/macros/s/請貼上你的部署ID/exec';
 
 var KEY_NAME = 'fareshare_key';
 var $ = function (id) { return document.getElementById(id); };
@@ -131,8 +132,21 @@ function sendInsets() {
   lastInsets = k;
   appWin.postMessage({ type: 'fs-insets', top: s.t, bottom: s.b, left: s.l, right: s.r }, appOrigin);
 }
-window.addEventListener('resize', function () { setTimeout(sendInsets, 250); });
-window.addEventListener('orientationchange', function () { setTimeout(sendInsets, 400); });
+// iOS 主畫面 App 的已知問題：狀態列透明時，回報的高度會少掉狀態列那一段，畫面下方空一條。
+// 從主畫面打開時，直接用螢幕實際高度撐滿。
+function fitHeight() {
+  var root = document.documentElement.style;
+  if (!standalone()) { root.removeProperty('--app-h'); return; }
+  var portrait = window.innerHeight > window.innerWidth;
+  var sw = window.screen.width, sh = window.screen.height;
+  var full = portrait ? Math.max(sw, sh) : Math.min(sw, sh);
+  if (full > window.innerHeight) root.setProperty('--app-h', full + 'px');
+  else root.removeProperty('--app-h');
+}
+fitHeight();
+window.addEventListener('resize', function () { fitHeight(); setTimeout(fitHeight, 300); setTimeout(sendInsets, 250); });
+window.addEventListener('orientationchange', function () { setTimeout(fitHeight, 300); setTimeout(sendInsets, 400); });
+window.addEventListener('pageshow', fitHeight);
 
 // 鍵盤收起後，把被 iOS 往上推的畫面捲回原位
 function resetScroll() {
