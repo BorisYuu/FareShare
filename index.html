@@ -7,7 +7,8 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="FareShare">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<!-- 狀態列用實色（跟 App 背景同色）。透明狀態列在新版 iOS 會讓主畫面 App 的高度少算一段，下方被切掉 -->
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="theme-color" content="#EAF0F3" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#0D1520" media="(prefers-color-scheme: dark)">
 <meta name="color-scheme" content="light dark">
@@ -26,9 +27,9 @@
   html{background:var(--paper)}
   #probe{position:fixed;left:0;top:0;width:0;height:0;visibility:hidden;
     padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px)}
-  #frame{position:fixed;top:0;left:0;width:100%;height:var(--app-h,100%);border:0;display:block;background:var(--paper);visibility:hidden}
+  #frame{position:fixed;inset:0;width:100%;height:100%;border:0;display:block;background:var(--paper);visibility:hidden}
   #frame.on{visibility:visible}
-  .screen{position:fixed;top:0;left:0;right:0;height:var(--app-h,100%);display:flex;flex-direction:column;justify-content:center;align-items:center;padding:24px;
+  .screen{position:fixed;inset:0;display:flex;flex-direction:column;justify-content:center;align-items:center;padding:24px;
     padding-top:calc(env(safe-area-inset-top) + 24px);padding-bottom:calc(env(safe-area-inset-bottom) + 24px);transition:opacity .3s,visibility 0s .3s}
   .screen.off{opacity:0;visibility:hidden}
   .box{width:100%;max-width:360px}
@@ -87,7 +88,7 @@ var key = '';
 try { key = localStorage.getItem(KEY_NAME) || ''; } catch (e) {}
 var loaded = false, slowTimer = null;
 
-// iPhone 各機型的安全區域（直向，單位 pt）。iOS 偶爾在剛打開時回報 0，這時用這張表補上
+// iPhone 各機型的安全區域（直向，單位 pt）。iOS 偶爾在剛打開時回報 0，這時用這張表補上下方的留白
 // key = 螢幕長邊的高度
 var DEVICE_INSETS = {
   667: [20, 0],   // SE 2/3、6/7/8
@@ -112,7 +113,7 @@ function insets() {
   var s = measure();
   if (standalone() && s.t === 0 && s.b === 0 && window.innerHeight > window.innerWidth) {
     var f = DEVICE_INSETS[Math.max(window.screen.width, window.screen.height)];
-    if (f) { s.t = f[0]; s.b = f[1]; s.fallback = true; }
+    if (f) { s.t = 0; s.b = f[1]; s.fallback = true; }   // 狀態列是實色，App 從狀態列下方開始，只需要補下方的 Home 指示條
   }
   return s;
 }
@@ -132,21 +133,8 @@ function sendInsets() {
   lastInsets = k;
   appWin.postMessage({ type: 'fs-insets', top: s.t, bottom: s.b, left: s.l, right: s.r }, appOrigin);
 }
-// iOS 主畫面 App 的已知問題：狀態列透明時，回報的高度會少掉狀態列那一段，畫面下方空一條。
-// 從主畫面打開時，直接用螢幕實際高度撐滿。
-function fitHeight() {
-  var root = document.documentElement.style;
-  if (!standalone()) { root.removeProperty('--app-h'); return; }
-  var portrait = window.innerHeight > window.innerWidth;
-  var sw = window.screen.width, sh = window.screen.height;
-  var full = portrait ? Math.max(sw, sh) : Math.min(sw, sh);
-  if (full > window.innerHeight) root.setProperty('--app-h', full + 'px');
-  else root.removeProperty('--app-h');
-}
-fitHeight();
-window.addEventListener('resize', function () { fitHeight(); setTimeout(fitHeight, 300); setTimeout(sendInsets, 250); });
-window.addEventListener('orientationchange', function () { setTimeout(fitHeight, 300); setTimeout(sendInsets, 400); });
-window.addEventListener('pageshow', fitHeight);
+window.addEventListener('resize', function () { setTimeout(sendInsets, 250); });
+window.addEventListener('orientationchange', function () { setTimeout(sendInsets, 400); });
 
 // 鍵盤收起後，把被 iOS 往上推的畫面捲回原位
 function resetScroll() {
